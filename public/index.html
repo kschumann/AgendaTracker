@@ -119,7 +119,7 @@
     height:clamp(170px, 24vw, 230px);
     background:var(--panel);
     border:1px solid var(--panel-border);
-    border-radius:var(--radius);
+    border-radius:0;
     box-shadow:0 -14px 28px -10px rgba(0,0,0,0.5), 0 14px 28px -10px rgba(0,0,0,0.5);
     overflow:hidden;
   }
@@ -320,7 +320,7 @@
   .events-list{ display:flex; flex-direction:column; gap:10px; }
   .event-row{
     display:grid;
-    grid-template-columns:1fr 140px 32px;
+    grid-template-columns:1fr 130px 100px 32px;
     gap:8px;
     align-items:center;
   }
@@ -373,6 +373,17 @@
   }
   .not-found-card .btn{ display:inline-block; text-decoration:none; }
   .event-row select{ width:100%; padding:9px 8px; font-size:13px; }
+  .event-row .time-input{
+    width:100%;
+    font-family:var(--font-ui);
+    font-size:13px;
+    color:var(--text);
+    background:rgba(255,255,255,0.06);
+    border:1px solid var(--panel-border);
+    border-radius:8px;
+    padding:8px;
+    color-scheme:dark;
+  }
   .remove-btn{
     background:transparent;
     border:1px solid var(--panel-border);
@@ -387,8 +398,9 @@
   .hint.hidden{ display:none; }
 
   @media (max-width:520px){
-    .event-row{ grid-template-columns:1fr; }
-    .remove-btn{ justify-self:end; width:70px; }
+    .event-row{ grid-template-columns:1fr 1fr; }
+    .event-row input[type="text"]{ grid-column:1 / -1; }
+    .remove-btn{ grid-column:1 / -1; justify-self:end; width:70px; }
   }
 
   @media (prefers-reduced-motion:reduce){
@@ -977,6 +989,26 @@
     return bestIdx;
   }
 
+  function pad2(n){
+    return (n < 10 ? "0" : "") + n;
+  }
+
+  // Epoch -> "HH:MM" string in the given zone, for the native time input.
+  function epochToTimeInputValue(epochMs, tz){
+    var zp = getZonedParts(epochMs, tz);
+    return pad2(zp.hour) + ":" + pad2(zp.minute);
+  }
+
+  // "HH:MM" string -> epoch, using today's date in the given zone (events are always same-day).
+  function timeInputValueToEpoch(value, tz){
+    var parts = value.split(":");
+    var hour = parseInt(parts[0], 10);
+    var minute = parseInt(parts[1], 10);
+    if(isNaN(hour) || isNaN(minute)) return null;
+    var today = getZonedParts(Date.now(), tz);
+    return zonedTimeToEpoch(today.year, today.month, today.day, hour, minute, tz);
+  }
+
   /* ============================================================
      Events modal
      ============================================================ */
@@ -1039,6 +1071,20 @@
         renderEventsList();
       });
 
+      var timeInput = document.createElement("input");
+      timeInput.type = "time";
+      timeInput.step = "60";
+      timeInput.className = "time-input";
+      timeInput.setAttribute("aria-label", "Exact event time");
+      timeInput.value = epochToTimeInputValue(ev.epoch, state.tz);
+      timeInput.addEventListener("change", function(){
+        var newEpoch = timeInputValueToEpoch(timeInput.value, state.tz);
+        if(newEpoch === null) return; // incomplete/invalid entry -- leave the event untouched
+        draftEvents[idx].epoch = newEpoch;
+        sortDraftEvents();
+        renderEventsList();
+      });
+
       var removeBtn = document.createElement("button");
       removeBtn.type = "button";
       removeBtn.className = "remove-btn";
@@ -1051,6 +1097,7 @@
 
       row.appendChild(nameInput);
       row.appendChild(timeSelect);
+      row.appendChild(timeInput);
       row.appendChild(removeBtn);
       eventsList.appendChild(row);
     });
