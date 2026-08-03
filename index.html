@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Meeting Tracker</title>
+<style>
+  :root{
+    --bg:#0a0c10;
+    --bg-radial:#12151b;
+    --panel:rgba(255,255,255,0.045);
+    --panel-border:rgba(255,255,255,0.09);
+    --panel-shadow:0 20px 50px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.35);
+    --text:#e7eaf0;
+    --text-dim:#8892a0;
+    --text-faint:#565f6c;
+    --line:#d7dee8;
+    --tick-minor:#4a5160;
+    --red:#ff4d4f;
+    --red-glow:rgba(255,77,79,0.55);
+    --yellow:#ffcf4d;
+    --radius:14px;
+    --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --font-mono:"SF Mono","Berkeley Mono",ui-monospace,Menlo,Consolas,"Roboto Mono",monospace;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:var(--font-ui);
+    color:var(--text);
+    background:
+      radial-gradient(circle at 50% -10%, var(--bg-radial), var(--bg) 60%);
+    min-height:100%;
+    display:flex;
+    flex-direction:column;
+  }
+
+  .app{
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+    padding:20px 0 32px;
+    gap:clamp(18px,4vw,40px);
+  }
+
+  /* ---------- Header ---------- */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:14px;
+    padding:0 clamp(14px,3vw,32px);
+  }
+
+  .title-tile{
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:10px;
+    padding:10px 20px;
+    font-size:clamp(18px,2.4vw,22px);
+    font-weight:600;
+    letter-spacing:0.02em;
+    box-shadow:var(--panel-shadow);
+  }
+
+  .controls{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+
+  select, .btn{
+    font-family:var(--font-ui);
+    font-size:14px;
+    color:var(--text);
+    background:rgba(255,255,255,0.06);
+    border:1px solid var(--panel-border);
+    border-radius:8px;
+    padding:9px 14px;
+    cursor:pointer;
+    transition:background 0.15s ease, border-color 0.15s ease;
+  }
+  select:hover, .btn:hover{ background:rgba(255,255,255,0.11); }
+  /* The closed select inherits the dark theme, but the native pop-open option
+     list uses the browser's own colors -- set them explicitly so option text
+     stays readable instead of light-on-light. */
+  select option{ color:#1a1d24; background:#f2f3f5; }
+  select:focus-visible, .btn:focus-visible, input:focus-visible{
+    outline:2px solid var(--yellow);
+    outline-offset:2px;
+  }
+  select{ appearance:auto; }
+
+  .btn-icon{ padding:9px 12px; font-size:16px; line-height:1; }
+  .btn-primary{ background:rgba(255,207,77,0.16); border-color:rgba(255,207,77,0.4); color:#ffe9b3; }
+  .btn-primary:hover{ background:rgba(255,207,77,0.26); }
+  .btn-ghost{ background:transparent; }
+  .btn-secondary{ background:rgba(255,255,255,0.04); }
+  .btn:disabled{ opacity:0.4; cursor:not-allowed; }
+
+  /* ---------- Stage / timeline ---------- */
+  .stage{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:18px;
+  }
+
+  .timeline-card{
+    position:relative;
+    width:100%;
+    height:clamp(170px, 24vw, 230px);
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:var(--radius);
+    box-shadow:0 -14px 28px -10px rgba(0,0,0,0.5), 0 14px 28px -10px rgba(0,0,0,0.5);
+    overflow:hidden;
+  }
+
+  .viewport{
+    position:absolute;
+    inset:0;
+    touch-action:none;
+    user-select:none;
+    cursor:grab;
+  }
+  .viewport.dragging{ cursor:grabbing; }
+
+  .track{ position:absolute; inset:0; }
+
+  .baseline{
+    position:absolute;
+    left:0; right:0; top:50%;
+    height:3px;
+    transform:translateY(-50%);
+    background:var(--line);
+    border-radius:2px;
+    box-shadow:0 0 8px rgba(215,222,232,0.25);
+  }
+
+  .tick{
+    position:absolute;
+    top:50%;
+    width:1px;
+    background:var(--tick-minor);
+    transition:left 0.6s ease;
+  }
+  .tick.hour{ width:2px; background:var(--line); height:26px; }
+  .tick.quarter{ width:1.5px; background:#9aa3b2; height:16px; opacity:0.85; }
+  .tick.minor{ height:8px; opacity:0.55; }
+
+  .label{
+    position:absolute;
+    top:50%;
+    transform:translate(-50%, 0);
+    text-align:center;
+    white-space:nowrap;
+    font-family:var(--font-mono);
+    transition:left 0.6s ease;
+    pointer-events:none;
+  }
+  .label.hour-label{
+    font-size:13px;
+    font-weight:600;
+    color:var(--text);
+    margin-top:32px;
+  }
+  .label.quarter-label{
+    font-size:11px;
+    color:var(--text-dim);
+    margin-top:22px;
+  }
+
+  .event-dot{
+    position:absolute;
+    top:50%;
+    width:14px;
+    height:14px;
+    border-radius:50%;
+    background:var(--yellow);
+    box-shadow:0 0 10px rgba(255,207,77,0.7);
+    transform:translate(-50%, -50%);
+    transition:left 0.6s ease;
+    z-index:5;
+  }
+  .event-label{
+    position:absolute;
+    top:50%;
+    transform:translate(-50%, 0);
+    margin-top:-58px;
+    max-width:150px;
+    text-align:center;
+    color:var(--yellow);
+    font-size:12px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    transition:left 0.6s ease;
+    z-index:5;
+    pointer-events:none;
+  }
+
+  .now-line{
+    position:absolute;
+    top:0; bottom:0;
+    width:3px;
+    background:var(--red);
+    z-index:10;
+    transform:translateX(-50%);
+  }
+  .now-line::before{
+    content:"";
+    position:absolute;
+    top:-3px; left:50%;
+    width:9px; height:9px;
+    border-radius:50%;
+    background:var(--red);
+    box-shadow:0 0 10px 2px var(--red-glow);
+    transform:translateX(-50%);
+    animation:pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{ opacity:1; }
+    50%{ opacity:0.55; }
+  }
+
+  .no-transition .tick,
+  .no-transition .label,
+  .no-transition .event-dot,
+  .no-transition .event-label{
+    transition:none !important;
+  }
+
+  .recenter-btn{
+    font-family:var(--font-ui);
+    font-size:13px;
+    color:var(--text-dim);
+    background:transparent;
+    border:1px solid var(--panel-border);
+    border-radius:20px;
+    padding:8px 18px;
+    cursor:pointer;
+    transition:color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+  .recenter-btn:hover{ color:var(--text); border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.05); }
+
+  /* ---------- Modals ---------- */
+  .modal-overlay{
+    position:fixed; inset:0;
+    background:rgba(4,5,7,0.65);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    z-index:100;
+  }
+  .modal-overlay.hidden{ display:none; }
+
+  .modal{
+    width:min(560px, 100%);
+    max-height:min(640px, 90vh);
+    background:#12151c;
+    border:1px solid var(--panel-border);
+    border-radius:var(--radius);
+    box-shadow:var(--panel-shadow);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .modal-narrow{ width:min(380px, 100%); }
+
+  .modal-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:18px 20px;
+    border-bottom:1px solid var(--panel-border);
+  }
+  .modal-header h2{ margin:0; font-size:17px; font-weight:600; }
+
+  .icon-btn{
+    background:transparent;
+    border:none;
+    color:var(--text-dim);
+    font-size:16px;
+    cursor:pointer;
+    padding:4px 8px;
+    border-radius:6px;
+  }
+  .icon-btn:hover{ color:var(--text); background:rgba(255,255,255,0.06); }
+
+  .modal-body{
+    padding:18px 20px;
+    overflow-y:auto;
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+
+  .modal-footer{
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    padding:16px 20px;
+    border-top:1px solid var(--panel-border);
+  }
+
+  .field{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--text-dim); }
+  .field select{ width:100%; }
+
+  .events-list{ display:flex; flex-direction:column; gap:10px; }
+  .event-row{
+    display:grid;
+    grid-template-columns:1fr 140px 32px;
+    gap:8px;
+    align-items:center;
+  }
+  .event-row input[type="text"],
+  .field input[type="text"]{
+    font-family:var(--font-ui);
+    font-size:14px;
+    color:var(--text);
+    background:rgba(255,255,255,0.06);
+    border:1px solid var(--panel-border);
+    border-radius:8px;
+    padding:9px 12px;
+    width:100%;
+  }
+  .field input[type="text"][readonly]{
+    font-family:var(--font-mono);
+    font-size:13px;
+    color:var(--text-dim);
+    cursor:text;
+  }
+
+  .not-found{
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+  }
+  .not-found.hidden{ display:none; }
+  .not-found-card{
+    max-width:420px;
+    width:100%;
+    text-align:center;
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:var(--radius);
+    box-shadow:var(--panel-shadow);
+    padding:40px 32px;
+  }
+  .not-found-card h1{
+    margin:0 0 12px;
+    font-size:20px;
+    font-weight:600;
+  }
+  .not-found-card p{
+    margin:0 0 24px;
+    color:var(--text-dim);
+    font-size:14px;
+    line-height:1.5;
+  }
+  .not-found-card .btn{ display:inline-block; text-decoration:none; }
+  .event-row select{ width:100%; padding:9px 8px; font-size:13px; }
+  .remove-btn{
+    background:transparent;
+    border:1px solid var(--panel-border);
+    color:var(--text-dim);
+    border-radius:8px;
+    height:36px;
+    cursor:pointer;
+  }
+  .remove-btn:hover{ color:var(--red); border-color:var(--red); }
+
+  .hint{ font-size:12px; color:var(--text-faint); margin:0; }
+  .hint.hidden{ display:none; }
+
+  @media (max-width:520px){
+    .event-row{ grid-template-columns:1fr; }
+    .remove-btn{ justify-self:end; width:70px; }
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .tick, .label, .event-dot, .event-label{ transition:none !important; }
+    .now-line::before{ animation:none !important; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="app" id="appRoot">
+    <header class="topbar">
+      <div class="title-tile">Meeting Tracker</div>
+      <div class="controls">
+        <select id="tzSelect" aria-label="Timezone"></select>
+        <button id="eventsBtn" class="btn" type="button">Events</button>
+        <button id="saveLinkBtn" class="btn btn-primary" type="button">Save &amp; Share</button>
+        <button id="settingsBtn" class="btn btn-icon" type="button" aria-label="Settings">&#9881;</button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <div class="timeline-card">
+        <div id="viewport" class="viewport">
+          <div id="track" class="track">
+            <div class="baseline"></div>
+          </div>
+          <div id="nowLine" class="now-line"></div>
+        </div>
+      </div>
+      <button id="recenterBtn" class="recenter-btn" type="button">Recenter</button>
+    </main>
+  </div>
+
+  <!-- Events Modal -->
+  <div id="eventsModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Events</h2>
+        <button class="icon-btn" id="closeEventsBtn" type="button" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div id="eventsList" class="events-list"></div>
+        <button id="addEventBtn" class="btn btn-secondary" type="button">+ Add event</button>
+        <p id="eventLimitMsg" class="hint hidden">Maximum of 20 events reached.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelEventsBtn" class="btn btn-ghost" type="button">Cancel</button>
+        <button id="saveEventsBtn" class="btn btn-primary" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal-overlay hidden">
+    <div class="modal modal-narrow">
+      <div class="modal-header">
+        <h2>Settings</h2>
+        <button class="icon-btn" id="closeSettingsBtn" type="button" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>Time span shown</span>
+          <select id="spanSelect"></select>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button id="cancelSettingsBtn" class="btn btn-ghost" type="button">Cancel</button>
+        <button id="saveSettingsBtn" class="btn btn-primary" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share Link Modal -->
+  <div id="shareModal" class="modal-overlay hidden">
+    <div class="modal modal-narrow">
+      <div class="modal-header">
+        <h2>Saved</h2>
+        <button class="icon-btn" id="closeShareBtn" type="button" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>Shareable link</span>
+          <input id="shareLinkInput" type="text" readonly>
+        </label>
+        <p class="hint">Anyone with this link can view and update this timeline. No account is needed.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="copyShareBtn" class="btn btn-primary" type="button">Copy Link</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- File Not Found view -->
+  <div id="notFoundView" class="not-found hidden">
+    <div class="not-found-card">
+      <h1>Timeline not found</h1>
+      <p>We couldn't find a saved timeline for this link. It may have been mistyped, or it may no longer exist.</p>
+      <a id="notFoundBackLink" class="btn btn-primary" href=".">Back to Meeting Tracker</a>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     Constants & state
+     ============================================================ */
+  var STORAGE_KEY = "meetingTracker.state.v1";
+  var STATE_API_BASE = "/api/state";
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  var MIN_MS = 60000;
+  var HOUR_MS = 3600000;
+  var QUARTER_MS = 900000;
+  var FIVE_MIN_MS = 300000;
+  var MAX_EVENTS = 20;
+
+  var FALLBACK_ZONES = [
+    "Pacific/Midway","Pacific/Honolulu","America/Anchorage","America/Los_Angeles",
+    "America/Tijuana","America/Denver","America/Phoenix","America/Chicago",
+    "America/Mexico_City","America/New_York","America/Toronto","America/Bogota",
+    "America/Caracas","America/Halifax","America/Santiago","America/Sao_Paulo",
+    "America/Argentina/Buenos_Aires","Atlantic/Azores","UTC","Europe/London",
+    "Europe/Dublin","Europe/Lisbon","Europe/Madrid","Europe/Paris","Europe/Berlin",
+    "Europe/Amsterdam","Europe/Rome","Europe/Athens","Europe/Helsinki",
+    "Europe/Istanbul","Europe/Moscow","Africa/Cairo","Africa/Johannesburg",
+    "Africa/Lagos","Africa/Nairobi","Asia/Jerusalem","Asia/Dubai","Asia/Karachi",
+    "Asia/Kolkata","Asia/Kathmandu","Asia/Dhaka","Asia/Bangkok","Asia/Jakarta",
+    "Asia/Shanghai","Asia/Hong_Kong","Asia/Singapore","Asia/Tokyo","Asia/Seoul",
+    "Australia/Perth","Australia/Adelaide","Australia/Sydney","Australia/Brisbane",
+    "Pacific/Guam","Pacific/Auckland","Pacific/Fiji","Pacific/Chatham"
+  ];
+
+  var state = {
+    tz: null,
+    span: 2,
+    viewCenterTime: Date.now(),
+    events: []
+  };
+  var followingNow = true;
+  var currentUuid = null; // set once we're viewing/editing a saved record via ?uuid=
+
+  /* ============================================================
+     Persistence
+     ============================================================ */
+  function loadState(){
+    try{
+      var raw = window.localStorage.getItem(STORAGE_KEY);
+      if(!raw) return null;
+      var parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === "object") return parsed;
+    }catch(e){
+      console.warn("Meeting Tracker: could not read saved state.", e);
+    }
+    return null;
+  }
+
+  function saveState(){
+    if(currentUuid) return; // editing a saved record -- don't touch this device's local default
+    try{
+      var toSave = { tz: state.tz, span: state.span, events: state.events };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    }catch(e){
+      console.warn("Meeting Tracker: could not save state.", e);
+    }
+  }
+
+  /* ============================================================
+     Timezone helpers
+     ============================================================ */
+  function getSystemTimeZone(){
+    try{
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    }catch(e){
+      return "UTC";
+    }
+  }
+
+  function listTimeZones(){
+    try{
+      if(typeof Intl.supportedValuesOf === "function"){
+        var zones = Intl.supportedValuesOf("timeZone");
+        if(zones && zones.length) return zones;
+      }
+    }catch(e){ /* fall through to fallback list */ }
+    return FALLBACK_ZONES.slice();
+  }
+
+  function formatZoneDisplay(tz){
+    return tz.replace(/_/g, " ").replace(/\//g, " / ");
+  }
+
+  // Returns {year, month(1-12), day, hour(0-23), minute, second} for an epoch ms in a given IANA zone.
+  function getZonedParts(epochMs, tz){
+    var dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hourCycle: "h23"
+    });
+    var parts = dtf.formatToParts(new Date(epochMs));
+    var map = {};
+    for(var i=0;i<parts.length;i++){ map[parts[i].type] = parts[i].value; }
+    return {
+      year: parseInt(map.year,10),
+      month: parseInt(map.month,10),
+      day: parseInt(map.day,10),
+      hour: parseInt(map.hour,10) % 24,
+      minute: parseInt(map.minute,10),
+      second: parseInt(map.second,10)
+    };
+  }
+
+  // Converts a wall-clock date/time in a given IANA zone to an epoch ms (UTC), via iterative refinement.
+  function zonedTimeToEpoch(year, month, day, hour, minute, tz){
+    var naive = Date.UTC(year, month-1, day, hour, minute, 0);
+    var guess = naive;
+    for(var i=0;i<2;i++){
+      var parts = getZonedParts(guess, tz);
+      var asUTC = Date.UTC(parts.year, parts.month-1, parts.day, parts.hour, parts.minute, parts.second);
+      var offset = asUTC - guess;
+      guess = naive - offset;
+    }
+    return guess;
+  }
+
+  function formatLabel(epochMs, tz, withPeriod){
+    var str = new Date(epochMs).toLocaleTimeString("en-US", {
+      timeZone: tz, hour: "numeric", minute: "2-digit", hour12: true
+    });
+    if(!withPeriod){
+      str = str.replace(/\s?[AP]M$/i, "");
+    }
+    return str;
+  }
+
+  /* ============================================================
+     DOM references
+     ============================================================ */
+  var viewportEl = document.getElementById("viewport");
+  var trackEl = document.getElementById("track");
+  var nowLineEl = document.getElementById("nowLine");
+  var tzSelect = document.getElementById("tzSelect");
+  var spanSelect = document.getElementById("spanSelect");
+  var recenterBtn = document.getElementById("recenterBtn");
+
+  var eventsBtn = document.getElementById("eventsBtn");
+  var eventsModal = document.getElementById("eventsModal");
+  var closeEventsBtn = document.getElementById("closeEventsBtn");
+  var cancelEventsBtn = document.getElementById("cancelEventsBtn");
+  var saveEventsBtn = document.getElementById("saveEventsBtn");
+  var eventsList = document.getElementById("eventsList");
+  var addEventBtn = document.getElementById("addEventBtn");
+  var eventLimitMsg = document.getElementById("eventLimitMsg");
+
+  var settingsBtn = document.getElementById("settingsBtn");
+  var settingsModal = document.getElementById("settingsModal");
+  var closeSettingsBtn = document.getElementById("closeSettingsBtn");
+  var cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
+  var saveSettingsBtn = document.getElementById("saveSettingsBtn");
+
+  var appRootEl = document.getElementById("appRoot");
+  var saveLinkBtn = document.getElementById("saveLinkBtn");
+  var shareModal = document.getElementById("shareModal");
+  var closeShareBtn = document.getElementById("closeShareBtn");
+  var shareLinkInput = document.getElementById("shareLinkInput");
+  var copyShareBtn = document.getElementById("copyShareBtn");
+  var notFoundViewEl = document.getElementById("notFoundView");
+  var notFoundBackLink = document.getElementById("notFoundBackLink");
+
+  var renderedTicks = {};   // key -> element, for keyed diffing
+  var renderedEvents = {};  // key -> {dot, label}
+
+  /* ============================================================
+     Init
+     ============================================================ */
+  function startApp(){
+    populateTimeZoneSelect();
+    populateSpanSelect();
+
+    renderTimeline(false);
+    scheduleMinuteTick();
+
+    window.addEventListener("resize", function(){
+      renderTimeline(false);
+    });
+  }
+
+  function initFromLocalStorage(){
+    var saved = loadState();
+    state.tz = (saved && saved.tz) || getSystemTimeZone();
+    state.span = (saved && saved.span) || 2;
+    state.events = (saved && Array.isArray(saved.events)) ? saved.events : [];
+    state.viewCenterTime = Date.now();
+    startApp();
+  }
+
+  function initFromSavedRecord(data){
+    state.tz = (data && typeof data.tz === "string") ? data.tz : getSystemTimeZone();
+    state.span = (data && typeof data.span === "number") ? data.span : 2;
+    state.events = (data && Array.isArray(data.events)) ? data.events : [];
+    state.viewCenterTime = Date.now();
+    startApp();
+  }
+
+  function showNotFoundView(){
+    appRootEl.style.display = "none";
+    notFoundBackLink.setAttribute("href", location.pathname);
+    notFoundViewEl.classList.remove("hidden");
+  }
+
+  function init(){
+    var uuid = new URLSearchParams(location.search).get("uuid");
+
+    if(!uuid){
+      initFromLocalStorage();
+      return;
+    }
+
+    if(!UUID_RE.test(uuid)){
+      showNotFoundView();
+      return;
+    }
+
+    fetch(STATE_API_BASE + "/" + encodeURIComponent(uuid))
+      .then(function(res){
+        if(res.status === 404){
+          showNotFoundView();
+          return null;
+        }
+        if(!res.ok){
+          throw new Error("Unexpected response loading saved timeline: " + res.status);
+        }
+        return res.json();
+      })
+      .then(function(data){
+        if(data === null) return; // already handled as not-found above
+        currentUuid = uuid;
+        initFromSavedRecord(data);
+      })
+      .catch(function(err){
+        console.warn("Meeting Tracker: could not load saved timeline.", err);
+        showNotFoundView();
+      });
+  }
+
+  function populateTimeZoneSelect(){
+    var zones = listTimeZones();
+    if(zones.indexOf(state.tz) === -1){ zones.unshift(state.tz); }
+    zones.sort();
+    tzSelect.innerHTML = "";
+    for(var i=0;i<zones.length;i++){
+      var opt = document.createElement("option");
+      opt.value = zones[i];
+      opt.textContent = formatZoneDisplay(zones[i]);
+      if(zones[i] === state.tz) opt.selected = true;
+      tzSelect.appendChild(opt);
+    }
+    tzSelect.addEventListener("change", function(){
+      state.tz = tzSelect.value;
+      saveState();
+      renderTimeline(false);
+    });
+  }
+
+  function populateSpanSelect(){
+    spanSelect.innerHTML = "";
+    for(var h=1; h<=8; h++){
+      var opt = document.createElement("option");
+      opt.value = String(h);
+      opt.textContent = h + (h === 1 ? " hour" : " hours");
+      spanSelect.appendChild(opt);
+    }
+  }
+
+  /* ============================================================
+     Rendering
+     ============================================================ */
+  function renderTimeline(animate){
+    var width = viewportEl.clientWidth;
+    var height = viewportEl.clientHeight;
+    if(width <= 0) return;
+
+    if(!animate){ viewportEl.classList.add("no-transition"); }
+
+    var spanMs = state.span * HOUR_MS;
+    var halfSpan = spanMs / 2;
+    var centerTime = state.viewCenterTime;
+    var startTime = centerTime - halfSpan;
+    var endTime = centerTime + halfSpan;
+    var pxPerMs = width / spanMs;
+
+    function xFor(t){ return (t - centerTime) * pxPerMs + width / 2; }
+
+    // ---- Ticks & labels ----
+    var firstTick = Math.ceil(startTime / FIVE_MIN_MS) * FIVE_MIN_MS;
+    var seenKeys = {};
+
+    for(var t = firstTick; t <= endTime; t += FIVE_MIN_MS){
+      var key = String(t);
+      seenKeys[key] = true;
+      var isHour = (t % HOUR_MS) === 0;
+      var isQuarter = !isHour && (t % QUARTER_MS) === 0;
+      var x = xFor(t);
+
+      var entry = renderedTicks[key];
+      if(!entry){
+        entry = { tick: document.createElement("div"), label: null };
+        trackEl.appendChild(entry.tick);
+        renderedTicks[key] = entry;
+      }
+      entry.tick.className = "tick" + (isHour ? " hour" : isQuarter ? " quarter" : " minor");
+      entry.tick.style.left = x + "px";
+
+      if(isHour || isQuarter){
+        if(!entry.label){
+          entry.label = document.createElement("div");
+          trackEl.appendChild(entry.label);
+        }
+        entry.label.className = "label " + (isHour ? "hour-label" : "quarter-label");
+        entry.label.style.left = x + "px";
+        entry.label.textContent = formatLabel(t, state.tz, isHour);
+      }
+    }
+
+    for(var oldKey in renderedTicks){
+      if(!seenKeys[oldKey]){
+        renderedTicks[oldKey].tick.remove();
+        if(renderedTicks[oldKey].label) renderedTicks[oldKey].label.remove();
+        delete renderedTicks[oldKey];
+      }
+    }
+
+    // ---- Events ----
+    var seenEventKeys = {};
+    var margin = spanMs * 0.15; // small margin so labels near the edge don't pop in abruptly
+    for(var i=0;i<state.events.length;i++){
+      var ev = state.events[i];
+      if(ev.epoch < startTime - margin || ev.epoch > endTime + margin) continue;
+      seenEventKeys[ev.id] = true;
+      var ex = xFor(ev.epoch);
+      var evEntry = renderedEvents[ev.id];
+      if(!evEntry){
+        evEntry = { dot: document.createElement("div"), label: document.createElement("div") };
+        evEntry.dot.className = "event-dot";
+        evEntry.label.className = "event-label";
+        trackEl.appendChild(evEntry.dot);
+        trackEl.appendChild(evEntry.label);
+        renderedEvents[ev.id] = evEntry;
+        evEntry.dot.style.left = ex + "px";
+        evEntry.label.style.left = ex + "px";
+      }else{
+        evEntry.dot.style.left = ex + "px";
+        evEntry.label.style.left = ex + "px";
+      }
+      evEntry.label.textContent = ev.name;
+      evEntry.label.title = ev.name;
+    }
+    for(var oldEvKey in renderedEvents){
+      if(!seenEventKeys[oldEvKey]){
+        renderedEvents[oldEvKey].dot.remove();
+        renderedEvents[oldEvKey].label.remove();
+        delete renderedEvents[oldEvKey];
+      }
+    }
+
+    // ---- Now line ----
+    var nowX = xFor(Date.now());
+    if(nowX < -20 || nowX > width + 20){
+      nowLineEl.style.visibility = "hidden";
+    }else{
+      nowLineEl.style.visibility = "visible";
+      nowLineEl.style.left = nowX + "px";
+    }
+
+    if(!animate){
+      // Force reflow, then remove the no-transition guard on the next frame.
+      void viewportEl.offsetHeight;
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          viewportEl.classList.remove("no-transition");
+        });
+      });
+    }
+  }
+
+  /* ============================================================
+     Minute refresh
+     ============================================================ */
+  function scheduleMinuteTick(){
+    var delay = MIN_MS - (Date.now() % MIN_MS) + 20;
+    setTimeout(function(){
+      minuteTick();
+      setInterval(minuteTick, MIN_MS);
+    }, delay);
+  }
+
+  function minuteTick(){
+    if(followingNow){
+      state.viewCenterTime = Date.now();
+    }
+    renderTimeline(true);
+  }
+
+  /* ============================================================
+     Drag to pan
+     ============================================================ */
+  var dragState = null;
+
+  viewportEl.addEventListener("pointerdown", function(e){
+    if(e.button !== undefined && e.button !== 0) return;
+    dragState = {
+      startX: e.clientX,
+      startCenter: state.viewCenterTime,
+      pxPerMs: viewportEl.clientWidth / (state.span * HOUR_MS),
+      moved: false
+    };
+    followingNow = false;
+    viewportEl.classList.add("dragging", "no-transition");
+    try{ viewportEl.setPointerCapture(e.pointerId); }catch(err){}
+  });
+
+  viewportEl.addEventListener("pointermove", function(e){
+    if(!dragState) return;
+    var dx = e.clientX - dragState.startX;
+    if(Math.abs(dx) > 2) dragState.moved = true;
+    state.viewCenterTime = dragState.startCenter - dx / dragState.pxPerMs;
+    renderTimeline(false);
+  });
+
+  function endDrag(e){
+    if(!dragState) return;
+    dragState = null;
+    viewportEl.classList.remove("dragging", "no-transition");
+  }
+  viewportEl.addEventListener("pointerup", endDrag);
+  viewportEl.addEventListener("pointercancel", endDrag);
+
+  recenterBtn.addEventListener("click", function(){
+    followingNow = true;
+    state.viewCenterTime = Date.now();
+    renderTimeline(true);
+  });
+
+  /* ============================================================
+     Event time dropdown options
+     ============================================================ */
+  function nearestQuarterHourEpoch(epochMs){
+    return Math.round(epochMs / QUARTER_MS) * QUARTER_MS;
+  }
+
+  function buildDayTimeOptions(tz){
+    var now = getZonedParts(Date.now(), tz);
+    var options = [];
+    for(var h=0; h<24; h++){
+      for(var m=0; m<60; m+=15){
+        var epoch = zonedTimeToEpoch(now.year, now.month, now.day, h, m, tz);
+        options.push({ epoch: epoch, label: formatLabel(epoch, tz, true) });
+      }
+    }
+    return options;
+  }
+
+  function closestOptionIndex(options, targetEpoch){
+    var bestIdx = 0, bestDiff = Infinity;
+    for(var i=0;i<options.length;i++){
+      var diff = Math.abs(options[i].epoch - targetEpoch);
+      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+    }
+    return bestIdx;
+  }
+
+  /* ============================================================
+     Events modal
+     ============================================================ */
+  var draftEvents = [];
+
+  function openEventsModal(){
+    draftEvents = state.events.map(function(ev){
+      return { id: ev.id, name: ev.name, epoch: ev.epoch };
+    });
+    renderEventsList();
+    eventsModal.classList.remove("hidden");
+  }
+
+  function closeEventsModal(){
+    eventsModal.classList.add("hidden");
+  }
+
+  function sortDraftEvents(){
+    draftEvents.sort(function(a, b){ return a.epoch - b.epoch; });
+  }
+
+  function makeId(){
+    if(window.crypto && typeof window.crypto.randomUUID === "function"){
+      return window.crypto.randomUUID();
+    }
+    return "ev-" + Date.now() + "-" + Math.floor(Math.random()*1e6);
+  }
+
+  function renderEventsList(){
+    eventsList.innerHTML = "";
+    var options = buildDayTimeOptions(state.tz);
+
+    draftEvents.forEach(function(ev, idx){
+      var row = document.createElement("div");
+      row.className = "event-row";
+
+      var nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.maxLength = 100;
+      nameInput.placeholder = "Event name";
+      nameInput.value = ev.name || "";
+      nameInput.setAttribute("aria-label", "Event name");
+      nameInput.addEventListener("input", function(){
+        draftEvents[idx].name = nameInput.value;
+      });
+
+      var timeSelect = document.createElement("select");
+      timeSelect.setAttribute("aria-label", "Event time");
+      var selIdx = closestOptionIndex(options, ev.epoch);
+      options.forEach(function(opt, oi){
+        var o = document.createElement("option");
+        o.value = String(opt.epoch);
+        o.textContent = opt.label;
+        if(oi === selIdx) o.selected = true;
+        timeSelect.appendChild(o);
+      });
+      timeSelect.addEventListener("change", function(){
+        draftEvents[idx].epoch = parseInt(timeSelect.value, 10);
+        sortDraftEvents();
+        renderEventsList();
+      });
+
+      var removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "remove-btn";
+      removeBtn.textContent = "Remove";
+      removeBtn.setAttribute("aria-label", "Remove event");
+      removeBtn.addEventListener("click", function(){
+        draftEvents.splice(idx, 1);
+        renderEventsList();
+      });
+
+      row.appendChild(nameInput);
+      row.appendChild(timeSelect);
+      row.appendChild(removeBtn);
+      eventsList.appendChild(row);
+    });
+
+    var atLimit = draftEvents.length >= MAX_EVENTS;
+    addEventBtn.disabled = atLimit;
+    eventLimitMsg.classList.toggle("hidden", !atLimit);
+  }
+
+  addEventBtn.addEventListener("click", function(){
+    if(draftEvents.length >= MAX_EVENTS) return;
+    var defaultEpoch = nearestQuarterHourEpoch(Date.now());
+    draftEvents.push({ id: makeId(), name: "", epoch: defaultEpoch });
+    sortDraftEvents();
+    renderEventsList();
+  });
+
+  saveEventsBtn.addEventListener("click", function(){
+    state.events = draftEvents
+      .filter(function(ev){ return ev.name && ev.name.trim().length > 0; })
+      .map(function(ev){ return { id: ev.id, name: ev.name.trim().slice(0,100), epoch: ev.epoch }; });
+    saveState();
+    closeEventsModal();
+    renderTimeline(false);
+  });
+
+  cancelEventsBtn.addEventListener("click", closeEventsModal);
+  closeEventsBtn.addEventListener("click", closeEventsModal);
+  eventsBtn.addEventListener("click", openEventsModal);
+  eventsModal.addEventListener("click", function(e){
+    if(e.target === eventsModal) closeEventsModal();
+  });
+
+  /* ============================================================
+     Settings modal
+     ============================================================ */
+  function openSettingsModal(){
+    spanSelect.value = String(state.span);
+    settingsModal.classList.remove("hidden");
+  }
+  function closeSettingsModal(){
+    settingsModal.classList.add("hidden");
+  }
+
+  settingsBtn.addEventListener("click", openSettingsModal);
+  cancelSettingsBtn.addEventListener("click", closeSettingsModal);
+  closeSettingsBtn.addEventListener("click", closeSettingsModal);
+  settingsModal.addEventListener("click", function(e){
+    if(e.target === settingsModal) closeSettingsModal();
+  });
+  saveSettingsBtn.addEventListener("click", function(){
+    state.span = parseInt(spanSelect.value, 10);
+    saveState();
+    closeSettingsModal();
+    renderTimeline(false);
+  });
+
+  /* ============================================================
+     Save & Share
+     ============================================================ */
+  function openShareModal(uuid){
+    var link = location.origin + location.pathname + "?uuid=" + uuid;
+    shareLinkInput.value = link;
+    shareModal.classList.remove("hidden");
+    shareLinkInput.focus();
+    shareLinkInput.select();
+  }
+  function closeShareModal(){
+    shareModal.classList.add("hidden");
+  }
+  closeShareBtn.addEventListener("click", closeShareModal);
+  shareModal.addEventListener("click", function(e){
+    if(e.target === shareModal) closeShareModal();
+  });
+  copyShareBtn.addEventListener("click", function(){
+    shareLinkInput.focus();
+    shareLinkInput.select();
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(shareLinkInput.value).then(function(){
+        copyShareBtn.textContent = "Copied!";
+        setTimeout(function(){ copyShareBtn.textContent = "Copy Link"; }, 1500);
+      }).catch(function(){ /* clipboard permission denied -- link is still selected for manual copy */ });
+    }
+  });
+
+  saveLinkBtn.addEventListener("click", function(){
+    var payload = { tz: state.tz, span: state.span, events: state.events };
+    var method = currentUuid ? "PUT" : "POST";
+    var url = currentUuid ? (STATE_API_BASE + "/" + encodeURIComponent(currentUuid)) : STATE_API_BASE;
+    var originalLabel = saveLinkBtn.textContent;
+
+    saveLinkBtn.disabled = true;
+    saveLinkBtn.textContent = "Saving\u2026";
+
+    fetch(url, {
+      method: method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function(res){
+      if(!res.ok){ throw new Error("Save failed: " + res.status); }
+      return res.json();
+    }).then(function(data){
+      if(data && data.uuid){
+        currentUuid = data.uuid;
+        history.replaceState(null, "", location.pathname + "?uuid=" + currentUuid);
+      }
+      saveLinkBtn.disabled = false;
+      saveLinkBtn.textContent = originalLabel;
+      openShareModal(currentUuid);
+    }).catch(function(err){
+      console.warn("Meeting Tracker: could not save timeline.", err);
+      saveLinkBtn.disabled = false;
+      saveLinkBtn.textContent = "Save failed \u2014 retry";
+      setTimeout(function(){ saveLinkBtn.textContent = originalLabel; }, 2500);
+    });
+  });
+
+  /* ============================================================
+     Go
+     ============================================================ */
+  init();
+})();
+</script>
+</body>
+</html>
