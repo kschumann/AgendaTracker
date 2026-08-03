@@ -401,7 +401,7 @@
 
   <div class="app" id="appRoot">
     <header class="topbar">
-      <div class="title-tile">Meeting Tracker</div>
+      <div class="title-tile" id="titleTile">Meeting Tracker</div>
       <div class="controls">
         <select id="tzSelect" aria-label="Timezone"></select>
         <button id="eventsBtn" class="btn" type="button">Events</button>
@@ -450,6 +450,10 @@
         <button class="icon-btn" id="closeSettingsBtn" type="button" aria-label="Close">&#10005;</button>
       </div>
       <div class="modal-body">
+        <label class="field">
+          <span>Agenda name</span>
+          <input id="agendaNameInput" type="text" maxlength="100" placeholder="e.g. Day 1">
+        </label>
         <label class="field">
           <span>Time span shown</span>
           <select id="spanSelect"></select>
@@ -526,6 +530,7 @@
   var state = {
     tz: null,
     span: 2,
+    agendaName: "",
     viewCenterTime: Date.now(),
     events: []
   };
@@ -550,7 +555,7 @@
   function saveState(){
     if(currentUuid) return; // editing a saved record -- don't touch this device's local default
     try{
-      var toSave = { tz: state.tz, span: state.span, events: state.events };
+      var toSave = { tz: state.tz, span: state.span, agendaName: state.agendaName, events: state.events };
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     }catch(e){
       console.warn("Meeting Tracker: could not save state.", e);
@@ -650,6 +655,8 @@
   var closeSettingsBtn = document.getElementById("closeSettingsBtn");
   var cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
   var saveSettingsBtn = document.getElementById("saveSettingsBtn");
+  var agendaNameInput = document.getElementById("agendaNameInput");
+  var titleTileEl = document.getElementById("titleTile");
 
   var appRootEl = document.getElementById("appRoot");
   var saveLinkBtn = document.getElementById("saveLinkBtn");
@@ -666,7 +673,13 @@
   /* ============================================================
      Init
      ============================================================ */
+  function updateTitleDisplay(){
+    var base = "Meeting Tracker";
+    titleTileEl.textContent = state.agendaName ? (base + ": " + state.agendaName) : base;
+  }
+
   function startApp(){
+    updateTitleDisplay();
     populateTimeZoneSelect();
     populateSpanSelect();
 
@@ -682,6 +695,7 @@
     var saved = loadState();
     state.tz = (saved && saved.tz) || getSystemTimeZone();
     state.span = (saved && saved.span) || 2;
+    state.agendaName = (saved && typeof saved.agendaName === "string") ? saved.agendaName : "";
     state.events = (saved && Array.isArray(saved.events)) ? saved.events : [];
     state.viewCenterTime = Date.now();
     startApp();
@@ -690,6 +704,7 @@
   function initFromSavedRecord(data){
     state.tz = (data && typeof data.tz === "string") ? data.tz : getSystemTimeZone();
     state.span = (data && typeof data.span === "number") ? data.span : 2;
+    state.agendaName = (data && typeof data.agendaName === "string") ? data.agendaName : "";
     state.events = (data && Array.isArray(data.events)) ? data.events : [];
     state.viewCenterTime = Date.now();
     startApp();
@@ -1073,6 +1088,7 @@
      Settings modal
      ============================================================ */
   function openSettingsModal(){
+    agendaNameInput.value = state.agendaName || "";
     spanSelect.value = String(state.span);
     settingsModal.classList.remove("hidden");
   }
@@ -1088,7 +1104,9 @@
   });
   saveSettingsBtn.addEventListener("click", function(){
     state.span = parseInt(spanSelect.value, 10);
+    state.agendaName = agendaNameInput.value.trim().slice(0, 100);
     saveState();
+    updateTitleDisplay();
     closeSettingsModal();
     renderTimeline(false);
   });
@@ -1122,7 +1140,7 @@
   });
 
   saveLinkBtn.addEventListener("click", function(){
-    var payload = { tz: state.tz, span: state.span, events: state.events };
+    var payload = { tz: state.tz, span: state.span, agendaName: state.agendaName, events: state.events };
     var method = currentUuid ? "PUT" : "POST";
     var url = currentUuid ? (STATE_API_BASE + "/" + encodeURIComponent(currentUuid)) : STATE_API_BASE;
     var originalLabel = saveLinkBtn.textContent;
