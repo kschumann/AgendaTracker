@@ -699,6 +699,33 @@
     return str;
   }
 
+  // Events store a wall-clock time-of-day (hour/minute), not a fixed date --
+  // this resolves that to an actual epoch for "today" in the given zone,
+  // recomputed fresh every time it's called so the same agenda works on any day.
+  function eventEpochToday(hour, minute, tz){
+    var today = getZonedParts(Date.now(), tz);
+    return zonedTimeToEpoch(today.year, today.month, today.day, hour, minute, tz);
+  }
+
+  // Upgrades events from the old {epoch} format (a fixed point in time, tied to
+  // whatever day it was saved on) to the new {hour, minute} format (date-agnostic
+  // time-of-day). Already-upgraded events pass through unchanged.
+  function normalizeEvents(events, tz){
+    if(!Array.isArray(events)) return [];
+    var out = [];
+    for(var i=0;i<events.length;i++){
+      var ev = events[i];
+      if(!ev) continue;
+      if(typeof ev.hour === "number" && typeof ev.minute === "number"){
+        out.push({ id: ev.id, name: ev.name, hour: ev.hour, minute: ev.minute });
+      }else if(typeof ev.epoch === "number"){
+        var parts = getZonedParts(ev.epoch, tz);
+        out.push({ id: ev.id, name: ev.name, hour: parts.hour, minute: parts.minute });
+      }
+    }
+    return out;
+  }
+
   /* ============================================================
      DOM references
      ============================================================ */
@@ -770,7 +797,7 @@
     state.tz = (saved && saved.tz) || getSystemTimeZone();
     state.span = (saved && saved.span) || 2;
     state.agendaName = (saved && typeof saved.agendaName === "string") ? saved.agendaName : "";
-    state.events = (saved && Array.isArray(saved.events)) ? saved.events : [];
+    state.events = normalizeEvents(saved && saved.events, state.tz);
     state.viewCenterTime = Date.now();
     startApp();
   }
@@ -779,7 +806,7 @@
     state.tz = (data && typeof data.tz === "string") ? data.tz : getSystemTimeZone();
     state.span = (data && typeof data.span === "number") ? data.span : 2;
     state.agendaName = (data && typeof data.agendaName === "string") ? data.agendaName : "";
-    state.events = (data && Array.isArray(data.events)) ? data.events : [];
+    state.events = normalizeEvents(data && data.events, state.tz);
     state.viewCenterTime = Date.now();
     startApp();
   }
@@ -918,9 +945,10 @@
     var visibleIdx = 0; // counts only events actually rendered, so stagger alternates left-to-right
     for(var i=0;i<state.events.length;i++){
       var ev = state.events[i];
-      if(ev.epoch < startTime - margin || ev.epoch > endTime + margin) continue;
+      var evEpoch = eventEpochToday(ev.hour, ev.minute, state.tz);
+      if(evEpoch < startTime - margin || evEpoch > endTime + margin) continue;
       seenEventKeys[ev.id] = true;
-      var ex = xFor(ev.epoch);
+      var ex = xFor(evEpoch);
       var isFar = (visibleIdx % 2) === 1;
       visibleIdx++;
       var evEntry = renderedEvents[ev.id];
@@ -978,13 +1006,15 @@
      ============================================================ */
   function getNextEvent(now){
     var next = null;
+    var nextEpoch = null;
     for(var i=0;i<state.events.length;i++){
       var ev = state.events[i];
-      if(ev.epoch > now){
-        if(next === null || ev.epoch < next.epoch) next = ev;
+      var evEpoch = eventEpochToday(ev.hour, ev.minute, state.tz);
+      if(evEpoch > now){
+        if(next === null || evEpoch < nextEpoch){ next = ev; nextEpoch = evEpoch; }
       }
     }
-    return next;
+    return next ? { event: next, epoch: nextEpoch } : null;
   }
 
   function formatCountdown(ms){
@@ -1009,7 +1039,7 @@
     noEventsMsgEl.classList.add("hidden");
     nextEventNameEl.classList.remove("hidden");
     countdownBoxEl.classList.remove("hidden");
-    nextEventNameEl.textContent = (next.name && next.name.trim()) ? next.name : "Upcoming event";
+    nextEventNameEl.textContent = (next.event.name && next.event.name.trim()) ? next.event.name : "Upcoming event";
     countdownDigitsEl.textContent = formatCountdown(next.epoch - now);
   }
 
@@ -1077,30 +1107,33 @@
   });
 
   /* ============================================================
-     Event time dropdown options
+     Event time helpers
      ============================================================ */
-  function nearestQuarterHourEpoch(epochMs){
-    return Math.round(epochMs / QUARTER_MS) * QUARTER_MS;
-  }
-
   function pad2(n){
     return (n < 10 ? "0" : "") + n;
   }
 
-  // Epoch -> "HH:MM" string in the given zone, for the native time input.
-  function epochToTimeInputValue(epochMs, tz){
-    var zp = getZonedParts(epochMs, tz);
-    return pad2(zp.hour) + ":" + pad2(zp.minute);
+  // Rounds "now" (in the given zone) to the nearest quarter hour, wrapping at midnight.
+  function nearestQuarterHourTimeOfDay(tz){
+    var now = getZonedParts(Date.now(), tz);
+    var totalMinutes = now.hour * 60 + now.minute;
+    var rounded = Math.round(totalMinutes / 15) * 15;
+    rounded = ((rounded % 1440) + 1440) % 1440;
+    return { hour: Math.floor(rounded / 60), minute: rounded % 60 };
   }
 
-  // "HH:MM" string -> epoch, using today's date in the given zone (events are always same-day).
-  function timeInputValueToEpoch(value, tz){
+  // {hour, minute} -> "HH:MM" string, for the native time input.
+  function timeOfDayToInputValue(hour, minute){
+    return pad2(hour) + ":" + pad2(minute);
+  }
+
+  // "HH:MM" string -> {hour, minute}, or null if incomplete/invalid.
+  function inputValueToTimeOfDay(value){
     var parts = value.split(":");
     var hour = parseInt(parts[0], 10);
     var minute = parseInt(parts[1], 10);
     if(isNaN(hour) || isNaN(minute)) return null;
-    var today = getZonedParts(Date.now(), tz);
-    return zonedTimeToEpoch(today.year, today.month, today.day, hour, minute, tz);
+    return { hour: hour, minute: minute };
   }
 
   /* ============================================================
@@ -1110,7 +1143,7 @@
 
   function openEventsModal(){
     draftEvents = state.events.map(function(ev){
-      return { id: ev.id, name: ev.name, epoch: ev.epoch };
+      return { id: ev.id, name: ev.name, hour: ev.hour, minute: ev.minute };
     });
     renderEventsList();
     eventsModal.classList.remove("hidden");
@@ -1121,7 +1154,7 @@
   }
 
   function sortDraftEvents(){
-    draftEvents.sort(function(a, b){ return a.epoch - b.epoch; });
+    draftEvents.sort(function(a, b){ return (a.hour*60 + a.minute) - (b.hour*60 + b.minute); });
   }
 
   function makeId(){
@@ -1153,11 +1186,12 @@
       timeInput.step = "60";
       timeInput.className = "time-input";
       timeInput.setAttribute("aria-label", "Event time");
-      timeInput.value = epochToTimeInputValue(ev.epoch, state.tz);
+      timeInput.value = timeOfDayToInputValue(ev.hour, ev.minute);
       timeInput.addEventListener("change", function(){
-        var newEpoch = timeInputValueToEpoch(timeInput.value, state.tz);
-        if(newEpoch === null) return; // incomplete/invalid entry -- leave the event untouched
-        draftEvents[idx].epoch = newEpoch;
+        var newTime = inputValueToTimeOfDay(timeInput.value);
+        if(newTime === null) return; // incomplete/invalid entry -- leave the event untouched
+        draftEvents[idx].hour = newTime.hour;
+        draftEvents[idx].minute = newTime.minute;
       });
 
       var removeBtn = document.createElement("button");
@@ -1183,8 +1217,8 @@
 
   addEventBtn.addEventListener("click", function(){
     if(draftEvents.length >= MAX_EVENTS) return;
-    var defaultEpoch = nearestQuarterHourEpoch(Date.now());
-    draftEvents.push({ id: makeId(), name: "", epoch: defaultEpoch });
+    var defaultTime = nearestQuarterHourTimeOfDay(state.tz);
+    draftEvents.push({ id: makeId(), name: "", hour: defaultTime.hour, minute: defaultTime.minute });
     renderEventsList();
   });
 
@@ -1192,7 +1226,7 @@
     sortDraftEvents();
     state.events = draftEvents
       .filter(function(ev){ return ev.name && ev.name.trim().length > 0; })
-      .map(function(ev){ return { id: ev.id, name: ev.name.trim().slice(0,100), epoch: ev.epoch }; });
+      .map(function(ev){ return { id: ev.id, name: ev.name.trim().slice(0,100), hour: ev.hour, minute: ev.minute }; });
     saveState();
     closeEventsModal();
     renderTimeline(false);
