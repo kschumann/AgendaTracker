@@ -134,7 +134,7 @@
     background:var(--panel);
     border:1px solid var(--panel-border);
     border-radius:var(--radius);
-    box-shadow:0 -10px 26px -4px rgba(255,255,255,0.14), 0 10px 26px -4px rgba(255,255,255,0.14);
+    box-shadow:0 -6px 16px -6px rgba(255,255,255,0.09), 0 6px 16px -6px rgba(255,255,255,0.09);
     padding:18px 40px;
   }
   .countdown-box.hidden{ display:none; }
@@ -159,7 +159,7 @@
     background:var(--panel);
     border:1px solid var(--panel-border);
     border-radius:0;
-    box-shadow:0 -10px 26px -4px rgba(255,255,255,0.14), 0 10px 26px -4px rgba(255,255,255,0.14);
+    box-shadow:0 -6px 16px -6px rgba(255,255,255,0.09), 0 6px 16px -6px rgba(255,255,255,0.09);
     overflow:hidden;
   }
 
@@ -468,7 +468,8 @@
       <div class="controls">
         <select id="tzSelect" aria-label="Timezone"></select>
         <button id="eventsBtn" class="btn" type="button">Events</button>
-        <button id="saveLinkBtn" class="btn btn-primary" type="button">Save &amp; Share</button>
+        <button id="saveBtn" class="btn" type="button">Save</button>
+        <button id="shareBtn" class="btn btn-primary" type="button">Share</button>
         <button id="settingsBtn" class="btn btn-icon" type="button" aria-label="Settings">&#9881;</button>
       </div>
     </header>
@@ -730,7 +731,8 @@
   var countdownBoxEl = document.getElementById("countdownBox");
   var countdownDigitsEl = document.getElementById("countdownDigits");
   var noEventsMsgEl = document.getElementById("noEventsMsg");
-  var saveLinkBtn = document.getElementById("saveLinkBtn");
+  var saveBtn = document.getElementById("saveBtn");
+  var shareBtn = document.getElementById("shareBtn");
   var shareModal = document.getElementById("shareModal");
   var closeShareBtn = document.getElementById("closeShareBtn");
   var shareLinkInput = document.getElementById("shareLinkInput");
@@ -1259,14 +1261,14 @@
     }
   });
 
-  saveLinkBtn.addEventListener("click", function(){
+  function persistState(triggerBtn, onSuccess){
     var payload = { tz: state.tz, span: state.span, agendaName: state.agendaName, events: state.events };
     var method = currentUuid ? "PUT" : "POST";
     var url = currentUuid ? (STATE_API_BASE + "/" + encodeURIComponent(currentUuid)) : STATE_API_BASE;
-    var originalLabel = saveLinkBtn.textContent;
+    var originalLabel = triggerBtn.textContent;
 
-    saveLinkBtn.disabled = true;
-    saveLinkBtn.textContent = "Saving\u2026";
+    triggerBtn.disabled = true;
+    triggerBtn.textContent = "Saving\u2026";
 
     fetch(url, {
       method: method,
@@ -1280,14 +1282,27 @@
         currentUuid = data.uuid;
         history.replaceState(null, "", location.pathname + "?uuid=" + currentUuid);
       }
-      saveLinkBtn.disabled = false;
-      saveLinkBtn.textContent = originalLabel;
-      openShareModal(currentUuid);
+      triggerBtn.disabled = false;
+      onSuccess(triggerBtn, originalLabel);
     }).catch(function(err){
       console.warn("Meeting Tracker: could not save timeline.", err);
-      saveLinkBtn.disabled = false;
-      saveLinkBtn.textContent = "Save failed \u2014 retry";
-      setTimeout(function(){ saveLinkBtn.textContent = originalLabel; }, 2500);
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = "Save failed \u2014 retry";
+      setTimeout(function(){ triggerBtn.textContent = originalLabel; }, 2500);
+    });
+  }
+
+  saveBtn.addEventListener("click", function(){
+    persistState(saveBtn, function(btn, originalLabel){
+      btn.textContent = "Saved!";
+      setTimeout(function(){ btn.textContent = originalLabel; }, 1500);
+    });
+  });
+
+  shareBtn.addEventListener("click", function(){
+    persistState(shareBtn, function(btn, originalLabel){
+      btn.textContent = originalLabel;
+      openShareModal(currentUuid);
     });
   });
 
