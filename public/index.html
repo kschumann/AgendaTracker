@@ -43,7 +43,7 @@
     flex-direction:column;
     min-height:100vh;
     padding:20px 0 32px;
-    gap:clamp(18px,4vw,40px);
+    gap:clamp(12px,2vw,24px);
   }
 
   /* ---------- Header ---------- */
@@ -57,14 +57,10 @@
   }
 
   .title-tile{
-    background:var(--panel);
-    border:1px solid var(--panel-border);
-    border-radius:10px;
-    padding:10px 20px;
     font-size:clamp(18px,2.4vw,22px);
     font-weight:600;
     letter-spacing:0.02em;
-    box-shadow:var(--panel-shadow);
+    color:var(--text);
   }
 
   .controls{
@@ -113,6 +109,49 @@
     gap:18px;
   }
 
+  /* ---------- Next event / countdown ---------- */
+  .next-event-zone{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    padding:24px clamp(14px,3vw,32px);
+    text-align:center;
+  }
+  .next-event-name{
+    font-size:clamp(20px,3.4vw,32px);
+    font-weight:600;
+    color:var(--text);
+    max-width:90%;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .next-event-name.hidden{ display:none; }
+  .countdown-box{
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:var(--radius);
+    box-shadow:0 -10px 26px -4px rgba(255,255,255,0.14), 0 10px 26px -4px rgba(255,255,255,0.14);
+    padding:18px 40px;
+  }
+  .countdown-box.hidden{ display:none; }
+  .countdown-digits{
+    font-family:var(--font-mono);
+    font-size:clamp(40px,8vw,72px);
+    font-weight:600;
+    color:var(--text);
+    letter-spacing:0.04em;
+    font-variant-numeric:tabular-nums;
+  }
+  .no-events-msg{
+    font-size:clamp(18px,2.6vw,24px);
+    color:var(--text-dim);
+  }
+  .no-events-msg.hidden{ display:none; }
+
   .timeline-card{
     position:relative;
     width:100%;
@@ -120,7 +159,7 @@
     background:var(--panel);
     border:1px solid var(--panel-border);
     border-radius:0;
-    box-shadow:0 -14px 28px -10px rgba(0,0,0,0.5), 0 14px 28px -10px rgba(0,0,0,0.5);
+    box-shadow:0 -10px 26px -4px rgba(255,255,255,0.14), 0 10px 26px -4px rgba(255,255,255,0.14);
     overflow:hidden;
   }
 
@@ -185,7 +224,6 @@
     height:14px;
     border-radius:50%;
     background:var(--yellow);
-    box-shadow:0 0 10px rgba(255,207,77,0.7);
     transform:translate(-50%, -50%);
     transition:left 0.6s ease;
     z-index:5;
@@ -194,7 +232,6 @@
     position:absolute;
     top:50%;
     transform:translate(-50%, 0);
-    margin-top:-58px;
     max-width:150px;
     text-align:center;
     color:var(--yellow);
@@ -207,6 +244,20 @@
     z-index:5;
     pointer-events:none;
   }
+  .event-label.near{ margin-top:-58px; }
+  .event-label.far{ margin-top:-88px; }
+
+  .event-connector{
+    position:absolute;
+    width:1px;
+    background:rgba(255,207,77,0.4);
+    transform:translateX(-50%);
+    z-index:4;
+    transition:left 0.6s ease;
+    pointer-events:none;
+  }
+  .event-connector.near{ top:calc(50% - 42px); height:42px; }
+  .event-connector.far{ top:calc(50% - 72px); height:72px; }
 
   .now-line{
     position:absolute;
@@ -235,7 +286,8 @@
   .no-transition .tick,
   .no-transition .label,
   .no-transition .event-dot,
-  .no-transition .event-label{
+  .no-transition .event-label,
+  .no-transition .event-connector{
     transition:none !important;
   }
 
@@ -276,6 +328,7 @@
     overflow:hidden;
   }
   .modal-narrow{ width:min(380px, 100%); }
+  .modal-wide{ width:min(640px, 100%); }
 
   .modal-header{
     display:flex;
@@ -320,7 +373,7 @@
   .events-list{ display:flex; flex-direction:column; gap:10px; }
   .event-row{
     display:grid;
-    grid-template-columns:1fr 130px 100px 32px;
+    grid-template-columns:1fr 120px 92px;
     gap:8px;
     align-items:center;
   }
@@ -372,7 +425,6 @@
     line-height:1.5;
   }
   .not-found-card .btn{ display:inline-block; text-decoration:none; }
-  .event-row select{ width:100%; padding:9px 8px; font-size:13px; }
   .event-row .time-input{
     width:100%;
     font-family:var(--font-ui);
@@ -400,11 +452,10 @@
   @media (max-width:520px){
     .event-row{ grid-template-columns:1fr 1fr; }
     .event-row input[type="text"]{ grid-column:1 / -1; }
-    .remove-btn{ grid-column:1 / -1; justify-self:end; width:70px; }
   }
 
   @media (prefers-reduced-motion:reduce){
-    .tick, .label, .event-dot, .event-label{ transition:none !important; }
+    .tick, .label, .event-dot, .event-label, .event-connector{ transition:none !important; }
     .now-line::before{ animation:none !important; }
   }
 </style>
@@ -422,6 +473,14 @@
       </div>
     </header>
 
+    <section class="next-event-zone">
+      <div class="next-event-name hidden" id="nextEventName"></div>
+      <div class="countdown-box hidden" id="countdownBox">
+        <div class="countdown-digits" id="countdownDigits">00:00:00</div>
+      </div>
+      <div class="no-events-msg hidden" id="noEventsMsg">No Further Events Today</div>
+    </section>
+
     <main class="stage">
       <div class="timeline-card">
         <div id="viewport" class="viewport">
@@ -437,7 +496,7 @@
 
   <!-- Events Modal -->
   <div id="eventsModal" class="modal-overlay hidden">
-    <div class="modal">
+    <div class="modal modal-wide">
       <div class="modal-header">
         <h2>Events</h2>
         <button class="icon-btn" id="closeEventsBtn" type="button" aria-label="Close">&#10005;</button>
@@ -523,7 +582,9 @@
   var FIVE_MIN_MS = 300000;
   var MAX_EVENTS = 20;
 
-  var FALLBACK_ZONES = [
+  // Curated list of major-city IANA zones (deliberately not the full ~400-zone
+  // Intl.supportedValuesOf list -- that's too many for a picker to be useful).
+  var CURATED_ZONES = [
     "Pacific/Midway","Pacific/Honolulu","America/Anchorage","America/Los_Angeles",
     "America/Tijuana","America/Denver","America/Phoenix","America/Chicago",
     "America/Mexico_City","America/New_York","America/Toronto","America/Bogota",
@@ -586,13 +647,7 @@
   }
 
   function listTimeZones(){
-    try{
-      if(typeof Intl.supportedValuesOf === "function"){
-        var zones = Intl.supportedValuesOf("timeZone");
-        if(zones && zones.length) return zones;
-      }
-    }catch(e){ /* fall through to fallback list */ }
-    return FALLBACK_ZONES.slice();
+    return CURATED_ZONES.slice();
   }
 
   function formatZoneDisplay(tz){
@@ -671,6 +726,10 @@
   var titleTileEl = document.getElementById("titleTile");
 
   var appRootEl = document.getElementById("appRoot");
+  var nextEventNameEl = document.getElementById("nextEventName");
+  var countdownBoxEl = document.getElementById("countdownBox");
+  var countdownDigitsEl = document.getElementById("countdownDigits");
+  var noEventsMsgEl = document.getElementById("noEventsMsg");
   var saveLinkBtn = document.getElementById("saveLinkBtn");
   var shareModal = document.getElementById("shareModal");
   var closeShareBtn = document.getElementById("closeShareBtn");
@@ -697,6 +756,7 @@
 
     renderTimeline(false);
     scheduleMinuteTick();
+    scheduleCountdownTick();
 
     window.addEventListener("resize", function(){
       renderTimeline(false);
@@ -853,31 +913,39 @@
     // ---- Events ----
     var seenEventKeys = {};
     var margin = spanMs * 0.15; // small margin so labels near the edge don't pop in abruptly
+    var visibleIdx = 0; // counts only events actually rendered, so stagger alternates left-to-right
     for(var i=0;i<state.events.length;i++){
       var ev = state.events[i];
       if(ev.epoch < startTime - margin || ev.epoch > endTime + margin) continue;
       seenEventKeys[ev.id] = true;
       var ex = xFor(ev.epoch);
+      var isFar = (visibleIdx % 2) === 1;
+      visibleIdx++;
       var evEntry = renderedEvents[ev.id];
       if(!evEntry){
-        evEntry = { dot: document.createElement("div"), label: document.createElement("div") };
+        evEntry = {
+          dot: document.createElement("div"),
+          connector: document.createElement("div"),
+          label: document.createElement("div")
+        };
         evEntry.dot.className = "event-dot";
-        evEntry.label.className = "event-label";
         trackEl.appendChild(evEntry.dot);
+        trackEl.appendChild(evEntry.connector);
         trackEl.appendChild(evEntry.label);
         renderedEvents[ev.id] = evEntry;
-        evEntry.dot.style.left = ex + "px";
-        evEntry.label.style.left = ex + "px";
-      }else{
-        evEntry.dot.style.left = ex + "px";
-        evEntry.label.style.left = ex + "px";
       }
+      evEntry.dot.style.left = ex + "px";
+      evEntry.connector.style.left = ex + "px";
+      evEntry.label.style.left = ex + "px";
+      evEntry.connector.className = "event-connector " + (isFar ? "far" : "near");
+      evEntry.label.className = "event-label " + (isFar ? "far" : "near");
       evEntry.label.textContent = ev.name;
       evEntry.label.title = ev.name;
     }
     for(var oldEvKey in renderedEvents){
       if(!seenEventKeys[oldEvKey]){
         renderedEvents[oldEvKey].dot.remove();
+        renderedEvents[oldEvKey].connector.remove();
         renderedEvents[oldEvKey].label.remove();
         delete renderedEvents[oldEvKey];
       }
@@ -901,6 +969,51 @@
         });
       });
     }
+  }
+
+  /* ============================================================
+     Next event countdown
+     ============================================================ */
+  function getNextEvent(now){
+    var next = null;
+    for(var i=0;i<state.events.length;i++){
+      var ev = state.events[i];
+      if(ev.epoch > now){
+        if(next === null || ev.epoch < next.epoch) next = ev;
+      }
+    }
+    return next;
+  }
+
+  function formatCountdown(ms){
+    var totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    var h = Math.floor(totalSeconds / 3600);
+    var m = Math.floor((totalSeconds % 3600) / 60);
+    var s = totalSeconds % 60;
+    return pad2(h) + ":" + pad2(m) + ":" + pad2(s);
+  }
+
+  function updateCountdown(){
+    var now = Date.now();
+    var next = getNextEvent(now);
+
+    if(!next){
+      nextEventNameEl.classList.add("hidden");
+      countdownBoxEl.classList.add("hidden");
+      noEventsMsgEl.classList.remove("hidden");
+      return;
+    }
+
+    noEventsMsgEl.classList.add("hidden");
+    nextEventNameEl.classList.remove("hidden");
+    countdownBoxEl.classList.remove("hidden");
+    nextEventNameEl.textContent = (next.name && next.name.trim()) ? next.name : "Upcoming event";
+    countdownDigitsEl.textContent = formatCountdown(next.epoch - now);
+  }
+
+  function scheduleCountdownTick(){
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
   }
 
   /* ============================================================
@@ -968,27 +1081,6 @@
     return Math.round(epochMs / QUARTER_MS) * QUARTER_MS;
   }
 
-  function buildDayTimeOptions(tz){
-    var now = getZonedParts(Date.now(), tz);
-    var options = [];
-    for(var h=0; h<24; h++){
-      for(var m=0; m<60; m+=15){
-        var epoch = zonedTimeToEpoch(now.year, now.month, now.day, h, m, tz);
-        options.push({ epoch: epoch, label: formatLabel(epoch, tz, true) });
-      }
-    }
-    return options;
-  }
-
-  function closestOptionIndex(options, targetEpoch){
-    var bestIdx = 0, bestDiff = Infinity;
-    for(var i=0;i<options.length;i++){
-      var diff = Math.abs(options[i].epoch - targetEpoch);
-      if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
-    }
-    return bestIdx;
-  }
-
   function pad2(n){
     return (n < 10 ? "0" : "") + n;
   }
@@ -1039,7 +1131,6 @@
 
   function renderEventsList(){
     eventsList.innerHTML = "";
-    var options = buildDayTimeOptions(state.tz);
 
     draftEvents.forEach(function(ev, idx){
       var row = document.createElement("div");
@@ -1055,34 +1146,16 @@
         draftEvents[idx].name = nameInput.value;
       });
 
-      var timeSelect = document.createElement("select");
-      timeSelect.setAttribute("aria-label", "Event time");
-      var selIdx = closestOptionIndex(options, ev.epoch);
-      options.forEach(function(opt, oi){
-        var o = document.createElement("option");
-        o.value = String(opt.epoch);
-        o.textContent = opt.label;
-        if(oi === selIdx) o.selected = true;
-        timeSelect.appendChild(o);
-      });
-      timeSelect.addEventListener("change", function(){
-        draftEvents[idx].epoch = parseInt(timeSelect.value, 10);
-        sortDraftEvents();
-        renderEventsList();
-      });
-
       var timeInput = document.createElement("input");
       timeInput.type = "time";
       timeInput.step = "60";
       timeInput.className = "time-input";
-      timeInput.setAttribute("aria-label", "Exact event time");
+      timeInput.setAttribute("aria-label", "Event time");
       timeInput.value = epochToTimeInputValue(ev.epoch, state.tz);
       timeInput.addEventListener("change", function(){
         var newEpoch = timeInputValueToEpoch(timeInput.value, state.tz);
         if(newEpoch === null) return; // incomplete/invalid entry -- leave the event untouched
         draftEvents[idx].epoch = newEpoch;
-        sortDraftEvents();
-        renderEventsList();
       });
 
       var removeBtn = document.createElement("button");
@@ -1096,7 +1169,6 @@
       });
 
       row.appendChild(nameInput);
-      row.appendChild(timeSelect);
       row.appendChild(timeInput);
       row.appendChild(removeBtn);
       eventsList.appendChild(row);
@@ -1111,17 +1183,18 @@
     if(draftEvents.length >= MAX_EVENTS) return;
     var defaultEpoch = nearestQuarterHourEpoch(Date.now());
     draftEvents.push({ id: makeId(), name: "", epoch: defaultEpoch });
-    sortDraftEvents();
     renderEventsList();
   });
 
   saveEventsBtn.addEventListener("click", function(){
+    sortDraftEvents();
     state.events = draftEvents
       .filter(function(ev){ return ev.name && ev.name.trim().length > 0; })
       .map(function(ev){ return { id: ev.id, name: ev.name.trim().slice(0,100), epoch: ev.epoch }; });
     saveState();
     closeEventsModal();
     renderTimeline(false);
+    updateCountdown();
   });
 
   cancelEventsBtn.addEventListener("click", closeEventsModal);
