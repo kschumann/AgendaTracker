@@ -583,23 +583,16 @@
   var FIVE_MIN_MS = 300000;
   var MAX_EVENTS = 20;
 
-  // Curated list of major-city IANA zones (deliberately not the full ~400-zone
-  // Intl.supportedValuesOf list -- that's too many for a picker to be useful).
-  var CURATED_ZONES = [
-    "Pacific/Midway","Pacific/Honolulu","America/Anchorage","America/Los_Angeles",
-    "America/Tijuana","America/Denver","America/Phoenix","America/Chicago",
-    "America/Mexico_City","America/New_York","America/Toronto","America/Bogota",
-    "America/Caracas","America/Halifax","America/Santiago","America/Sao_Paulo",
-    "America/Argentina/Buenos_Aires","Atlantic/Azores","UTC","Europe/London",
-    "Europe/Dublin","Europe/Lisbon","Europe/Madrid","Europe/Paris","Europe/Berlin",
-    "Europe/Amsterdam","Europe/Rome","Europe/Athens","Europe/Helsinki",
-    "Europe/Istanbul","Europe/Moscow","Africa/Cairo","Africa/Johannesburg",
-    "Africa/Lagos","Africa/Nairobi","Asia/Jerusalem","Asia/Dubai","Asia/Karachi",
-    "Asia/Kolkata","Asia/Kathmandu","Asia/Dhaka","Asia/Bangkok","Asia/Jakarta",
-    "Asia/Shanghai","Asia/Hong_Kong","Asia/Singapore","Asia/Tokyo","Asia/Seoul",
-    "Australia/Perth","Australia/Adelaide","Australia/Sydney","Australia/Brisbane",
-    "Pacific/Guam","Pacific/Auckland","Pacific/Fiji","Pacific/Chatham"
-  ];
+  // Supported zones. Deliberately limited to US Eastern and US Central: they share
+  // identical daylight-saving rules and transition dates, so the gap between them is
+  // always exactly one hour. That makes converting event times between them exact and
+  // reversible, with no seasonal drift.
+  var CURATED_ZONES = ["America/New_York", "America/Chicago"];
+  var DEFAULT_ZONE = "America/New_York";
+  var ZONE_LABELS = {
+    "America/New_York": "Eastern \u2014 New York",
+    "America/Chicago": "Central \u2014 Chicago"
+  };
 
   var state = {
     tz: null,
@@ -651,8 +644,14 @@
     return CURATED_ZONES.slice();
   }
 
+  // Only the two supported zones can be selected. Anything else (a system zone,
+  // or a zone from a record saved before the list was trimmed) falls back to Eastern.
+  function coerceZone(tz){
+    return CURATED_ZONES.indexOf(tz) === -1 ? DEFAULT_ZONE : tz;
+  }
+
   function formatZoneDisplay(tz){
-    return tz.replace(/_/g, " ").replace(/\//g, " / ");
+    return ZONE_LABELS[tz] || tz.replace(/_/g, " ").replace(/\//g, " / ");
   }
 
   // Returns {year, month(1-12), day, hour(0-23), minute, second} for an epoch ms in a given IANA zone.
@@ -707,20 +706,56 @@
     return zonedTimeToEpoch(today.year, today.month, today.day, hour, minute, tz);
   }
 
+  // Every event carries the zone its hour/minute are expressed in. Older records
+  // predate that field, so fall back to the timeline's zone.
+  function eventZone(ev){
+    return (ev && typeof ev.tz === "string" && ev.tz) ? ev.tz : state.tz;
+  }
+
+  // Resolves an event to the actual instant it represents, honouring its own zone.
+  function eventEpoch(ev){
+    return eventEpochToday(ev.hour, ev.minute, eventZone(ev));
+  }
+
+  // Re-expresses each event's time in a new zone while keeping the same instant:
+  // 9:00 AM Eastern becomes 8:00 AM Central. The event's tz stamp moves with it, so
+  // the stored data and the dropdown never disagree.
+  function convertEventsToZone(events, toTz){
+    return events.map(function(ev){
+      var fromTz = eventZone(ev);
+      if(fromTz === toTz){
+        return { id: ev.id, name: ev.name, hour: ev.hour, minute: ev.minute, tz: toTz };
+      }
+      var parts = getZonedParts(eventEpochToday(ev.hour, ev.minute, fromTz), toTz);
+      return { id: ev.id, name: ev.name, hour: parts.hour, minute: parts.minute, tz: toTz };
+    });
+  }
+
+  // Relabels events with a new zone WITHOUT converting -- the clock time stays put.
+  // Used only when loading a record whose zone is no longer selectable, where the
+  // user's expectation is that the times they typed are the times they see.
+  function restampEvents(events, tz){
+    return events.map(function(ev){
+      return { id: ev.id, name: ev.name, hour: ev.hour, minute: ev.minute, tz: tz };
+    });
+  }
+
   // Upgrades events from the old {epoch} format (a fixed point in time, tied to
-  // whatever day it was saved on) to the new {hour, minute} format (date-agnostic
-  // time-of-day). Already-upgraded events pass through unchanged.
+  // whatever day it was saved on) to the {hour, minute, tz} format (date-agnostic
+  // time-of-day plus the zone it belongs to). Already-upgraded events keep their
+  // own tz if they have one, and inherit the record's zone if they don't.
   function normalizeEvents(events, tz){
     if(!Array.isArray(events)) return [];
     var out = [];
     for(var i=0;i<events.length;i++){
       var ev = events[i];
       if(!ev) continue;
+      var evTz = (typeof ev.tz === "string" && ev.tz) ? ev.tz : tz;
       if(typeof ev.hour === "number" && typeof ev.minute === "number"){
-        out.push({ id: ev.id, name: ev.name, hour: ev.hour, minute: ev.minute });
+        out.push({ id: ev.id, name: ev.name, hour: ev.hour, minute: ev.minute, tz: evTz });
       }else if(typeof ev.epoch === "number"){
-        var parts = getZonedParts(ev.epoch, tz);
-        out.push({ id: ev.id, name: ev.name, hour: parts.hour, minute: parts.minute });
+        var parts = getZonedParts(ev.epoch, evTz);
+        out.push({ id: ev.id, name: ev.name, hour: parts.hour, minute: parts.minute, tz: evTz });
       }
     }
     return out;
@@ -792,23 +827,29 @@
     });
   }
 
-  function initFromLocalStorage(){
-    var saved = loadState();
-    state.tz = (saved && saved.tz) || getSystemTimeZone();
-    state.span = (saved && saved.span) || 2;
-    state.agendaName = (saved && typeof saved.agendaName === "string") ? saved.agendaName : "";
-    state.events = normalizeEvents(saved && saved.events, state.tz);
+  // Shared load path. `rawTz` is whatever the source claimed; if it isn't one of the
+  // two supported zones we snap to Eastern and relabel the events without converting,
+  // so the clock times the user originally typed are the ones they still see.
+  function applyLoadedState(source, rawTz){
+    var tz = coerceZone(rawTz);
+    state.tz = tz;
+    state.span = (source && typeof source.span === "number") ? source.span : 2;
+    state.agendaName = (source && typeof source.agendaName === "string") ? source.agendaName : "";
+
+    var events = normalizeEvents(source && source.events, rawTz);
+    state.events = (rawTz === tz) ? events : restampEvents(events, tz);
+
     state.viewCenterTime = Date.now();
     startApp();
   }
 
+  function initFromLocalStorage(){
+    var saved = loadState();
+    applyLoadedState(saved, (saved && saved.tz) || getSystemTimeZone());
+  }
+
   function initFromSavedRecord(data){
-    state.tz = (data && typeof data.tz === "string") ? data.tz : getSystemTimeZone();
-    state.span = (data && typeof data.span === "number") ? data.span : 2;
-    state.agendaName = (data && typeof data.agendaName === "string") ? data.agendaName : "";
-    state.events = normalizeEvents(data && data.events, state.tz);
-    state.viewCenterTime = Date.now();
-    startApp();
+    applyLoadedState(data, (data && typeof data.tz === "string") ? data.tz : getSystemTimeZone());
   }
 
   function showNotFoundView(){
@@ -854,8 +895,6 @@
 
   function populateTimeZoneSelect(){
     var zones = listTimeZones();
-    if(zones.indexOf(state.tz) === -1){ zones.unshift(state.tz); }
-    zones.sort();
     tzSelect.innerHTML = "";
     for(var i=0;i<zones.length;i++){
       var opt = document.createElement("option");
@@ -865,9 +904,15 @@
       tzSelect.appendChild(opt);
     }
     tzSelect.addEventListener("change", function(){
-      state.tz = tzSelect.value;
+      var newTz = coerceZone(tzSelect.value);
+      if(newTz === state.tz) return;
+      // Convert first, then switch -- the events keep the same instant and pick up
+      // their new clock time, so the dots stay put while the ruler relabels.
+      state.events = convertEventsToZone(state.events, newTz);
+      state.tz = newTz;
       saveState();
       renderTimeline(false);
+      updateCountdown();
     });
   }
 
@@ -945,7 +990,7 @@
     var visibleIdx = 0; // counts only events actually rendered, so stagger alternates left-to-right
     for(var i=0;i<state.events.length;i++){
       var ev = state.events[i];
-      var evEpoch = eventEpochToday(ev.hour, ev.minute, state.tz);
+      var evEpoch = eventEpoch(ev);
       if(evEpoch < startTime - margin || evEpoch > endTime + margin) continue;
       seenEventKeys[ev.id] = true;
       var ex = xFor(evEpoch);
@@ -1009,7 +1054,7 @@
     var nextEpoch = null;
     for(var i=0;i<state.events.length;i++){
       var ev = state.events[i];
-      var evEpoch = eventEpochToday(ev.hour, ev.minute, state.tz);
+      var evEpoch = eventEpoch(ev);
       if(evEpoch > now){
         if(next === null || evEpoch < nextEpoch){ next = ev; nextEpoch = evEpoch; }
       }
@@ -1142,9 +1187,9 @@
   var draftEvents = [];
 
   function openEventsModal(){
-    draftEvents = state.events.map(function(ev){
-      return { id: ev.id, name: ev.name, hour: ev.hour, minute: ev.minute };
-    });
+    // Convert into the on-screen zone before editing, so every row -- and the
+    // sort that runs on save -- is comparing times in one consistent zone.
+    draftEvents = convertEventsToZone(state.events, state.tz);
     renderEventsList();
     eventsModal.classList.remove("hidden");
   }
@@ -1192,6 +1237,7 @@
         if(newTime === null) return; // incomplete/invalid entry -- leave the event untouched
         draftEvents[idx].hour = newTime.hour;
         draftEvents[idx].minute = newTime.minute;
+        draftEvents[idx].tz = state.tz; // a time typed here means "in the zone shown on screen"
       });
 
       var removeBtn = document.createElement("button");
@@ -1218,7 +1264,7 @@
   addEventBtn.addEventListener("click", function(){
     if(draftEvents.length >= MAX_EVENTS) return;
     var defaultTime = nearestQuarterHourTimeOfDay(state.tz);
-    draftEvents.push({ id: makeId(), name: "", hour: defaultTime.hour, minute: defaultTime.minute });
+    draftEvents.push({ id: makeId(), name: "", hour: defaultTime.hour, minute: defaultTime.minute, tz: state.tz });
     renderEventsList();
   });
 
@@ -1226,7 +1272,7 @@
     sortDraftEvents();
     state.events = draftEvents
       .filter(function(ev){ return ev.name && ev.name.trim().length > 0; })
-      .map(function(ev){ return { id: ev.id, name: ev.name.trim().slice(0,100), hour: ev.hour, minute: ev.minute }; });
+      .map(function(ev){ return { id: ev.id, name: ev.name.trim().slice(0,100), hour: ev.hour, minute: ev.minute, tz: ev.tz || state.tz }; });
     saveState();
     closeEventsModal();
     renderTimeline(false);
